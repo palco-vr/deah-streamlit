@@ -23,7 +23,7 @@ supabase = create_client(
 st.markdown("""
 <style>
 .block-container {
-    padding-top: 1.2rem;
+    padding-top: 1.8rem;
     padding-bottom: 2rem;
     max-width: 760px;
 }
@@ -59,6 +59,29 @@ h1, h2, h3 {
 [data-testid="stSidebar"] {
     display: none;
 }
+
+@media (max-width: 640px) {
+    [data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        gap: 0.45rem !important;
+    }
+
+    [data-testid="stHorizontalBlock"] > div {
+        flex: 1 1 0 !important;
+        width: 50% !important;
+        min-width: 0 !important;
+    }
+
+    div.stButton > button {
+        min-height: 3.0rem;
+        font-size: 0.88rem;
+        padding-left: 0.25rem;
+        padding-right: 0.25rem;
+        white-space: normal;
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -79,6 +102,7 @@ METAPHOR_SCORE = {
 NEGATIVE_ITEMS = {
     "tension": "Hoje me senti tenso(a)",
     "worry": "Hoje me senti preocupado(a)",
+    "anxiety": "Hoje me senti ansioso(a)",
     "restlessness": "Hoje me senti inquieto(a)",
     "sadness": "Hoje me senti triste",
     "irritability": "Hoje me senti irritado(a)",
@@ -108,7 +132,7 @@ POSITIVE_WORDS = {
 }
 
 NEGATIVE_WORDS = {
-    "ansioso", "medo", "triste", "cansado", "preocupado", "irritado",
+    "ansioso", "ansiedade", "medo", "triste", "cansado", "preocupado", "irritado",
     "tenso", "inquieto", "angustiado", "perdido", "pesado", "confuso"
 }
 
@@ -225,8 +249,19 @@ def show_header_image():
 
 
 def top_nav():
-    st.markdown("### 🌿 DEAH")
-    st.caption("Diário Ecológico de Ansiedade, Estresse e Humor")
+    st.markdown(
+        """
+        <div style="text-align:center; padding-top:0.8rem; padding-bottom:0.4rem;">
+            <div style="font-size:2.1rem; font-weight:800; line-height:1.35; margin-bottom:0.25rem;">
+                🌿 DEAH
+            </div>
+            <div style="font-size:1rem; color:#4b5f54; line-height:1.35;">
+                Diário Ecológico de Ansiedade, Estresse e Humor
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     c1, c2 = st.columns(2)
     with c1:
