@@ -8,14 +8,11 @@ from supabase import create_client
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
-# ============================================================
-# CONFIGURAÇÃO GERAL
-# ============================================================
-
 st.set_page_config(
     page_title="DEAH",
     page_icon="🌿",
-    layout="wide"
+    layout="centered",
+    initial_sidebar_state="collapsed"
 )
 
 supabase = create_client(
@@ -23,9 +20,47 @@ supabase = create_client(
     st.secrets["SUPABASE_KEY"]
 )
 
-# ============================================================
-# CONSTANTES DO INSTRUMENTO
-# ============================================================
+st.markdown("""
+<style>
+.block-container {
+    padding-top: 1.2rem;
+    padding-bottom: 2rem;
+    max-width: 760px;
+}
+div.stButton > button {
+    width: 100%;
+    min-height: 3.2rem;
+    border-radius: 14px;
+    font-size: 1.05rem;
+    font-weight: 650;
+    margin-top: 0.35rem;
+    margin-bottom: 0.35rem;
+}
+.deah-card {
+    background: #f8faf7;
+    color: #1f2a24;
+    border: 1px solid #dfe8dd;
+    border-radius: 18px;
+    padding: 1rem 1rem;
+    margin: 0.8rem 0;
+}
+
+.deah-card h3,
+.deah-card p {
+    color: #1f2a24;
+}
+.small-muted {
+    color: #666;
+    font-size: 0.92rem;
+}
+h1, h2, h3 {
+    line-height: 1.15;
+}
+[data-testid="stSidebar"] {
+    display: none;
+}
+</style>
+""", unsafe_allow_html=True)
 
 METAPHOR_SCORE = {
     "Tempestade": 1,
@@ -42,21 +77,21 @@ METAPHOR_SCORE = {
 }
 
 NEGATIVE_ITEMS = {
-    "tension": "Tensão",
-    "worry": "Preocupação",
-    "restlessness": "Inquietação",
-    "sadness": "Tristeza",
-    "irritability": "Irritabilidade",
-    "discouragement": "Desânimo"
+    "tension": "Hoje me senti tenso(a)",
+    "worry": "Hoje me senti preocupado(a)",
+    "restlessness": "Hoje me senti inquieto(a)",
+    "sadness": "Hoje me senti triste",
+    "irritability": "Hoje me senti irritado(a)",
+    "discouragement": "Hoje me senti desanimado(a)"
 }
 
 POSITIVE_ITEMS = {
-    "relaxation": "Relaxamento",
-    "confidence": "Confiança",
-    "serenity": "Serenidade",
-    "joy": "Alegria",
-    "patience": "Paciência",
-    "hope": "Esperança"
+    "relaxation": "Hoje me senti relaxado(a)",
+    "confidence": "Hoje me senti confiante",
+    "serenity": "Hoje me senti sereno(a)",
+    "joy": "Hoje me senti alegre",
+    "patience": "Hoje me senti paciente",
+    "hope": "Hoje me senti esperançoso(a)"
 }
 
 STOPWORDS = {
@@ -67,7 +102,6 @@ STOPWORDS = {
     "meu", "minhas", "meus", "isso", "essa", "esse", "também"
 }
 
-# Listas pareadas: 12 positivas e 12 negativas
 POSITIVE_WORDS = {
     "calmo", "tranquilo", "feliz", "leve", "seguro", "confiante",
     "esperançoso", "organizado", "animado", "sereno", "acolhido", "alegre"
@@ -78,11 +112,20 @@ NEGATIVE_WORDS = {
     "tenso", "inquieto", "angustiado", "perdido", "pesado", "confuso"
 }
 
-# ============================================================
-# FUNÇÕES AUXILIARES
-# ============================================================
 
-def get_participant(masked_id: str):
+def go_to(page):
+    st.session_state.page = page
+    st.rerun()
+
+
+def init_state():
+    if "page" not in st.session_state:
+        st.session_state.page = "Início"
+    if "diary_start_time" not in st.session_state:
+        st.session_state.diary_start_time = time.time()
+
+
+def get_participant(masked_id):
     result = (
         supabase.table("participants")
         .select("*")
@@ -92,7 +135,7 @@ def get_participant(masked_id: str):
     return result.data[0] if result.data else None
 
 
-def clean_words(text: str):
+def clean_words(text):
     words = re.findall(r"\b[a-záàâãéèêíïóôõöúçñ]+\b", text.lower())
     return [w for w in words if w not in STOPWORDS and len(w) > 2]
 
@@ -103,15 +146,14 @@ def normalize(value, min_value, max_value):
     return max(0, min(100, ((value - min_value) / (max_value - min_value)) * 100))
 
 
-def count_words(text: str) -> int:
+def count_words(text):
     if not text:
         return 0
     return len(clean_words(text))
 
 
-def calculate_scores(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_scores(df):
     df = df.copy()
-
     negative_cols = list(NEGATIVE_ITEMS.keys())
     positive_cols = list(POSITIVE_ITEMS.keys())
 
@@ -123,27 +165,15 @@ def calculate_scores(df: pd.DataFrame) -> pd.DataFrame:
     df["afeto_negativo"] = df[negative_cols].mean(axis=1)
     df["afeto_positivo"] = df[positive_cols].mean(axis=1)
     df["positivo_invertido"] = 4 - df["afeto_positivo"]
-
-    df["desequilibrio_afetivo"] = df[
-        ["afeto_negativo", "positivo_invertido"]
-    ].mean(axis=1)
-
+    df["desequilibrio_afetivo"] = df[["afeto_negativo", "positivo_invertido"]].mean(axis=1)
     df["balanco_afetivo"] = df["afeto_positivo"] - df["afeto_negativo"]
     df["metaphor_score"] = df["image_metaphor"].map(METAPHOR_SCORE).fillna(5)
-
     return df
 
 
-def calculate_ipa(df: pd.DataFrame) -> dict:
+def calculate_ipa(df):
     if len(df) < 2:
-        return {
-            "ipa_global": 0,
-            "ipa_d": 0,
-            "ipa_t": 0,
-            "ipa_s": 0,
-            "ipa_v": 0,
-            "ipa_l": 0
-        }
+        return {"ipa_global": 0, "ipa_d": 0, "ipa_t": 0, "ipa_s": 0, "ipa_v": 0, "ipa_l": 0}
 
     df = df.sort_values("day_number").copy()
     metaphors = df["image_metaphor"].tolist()
@@ -151,50 +181,27 @@ def calculate_ipa(df: pd.DataFrame) -> dict:
 
     n = len(df)
     max_transitions = n - 1
-
     diversity = len(set(metaphors))
-    transitions = sum(
-        1 for i in range(1, n)
-        if metaphors[i] != metaphors[i - 1]
-    )
+    transitions = sum(1 for i in range(1, n) if metaphors[i] != metaphors[i - 1])
 
-    # IPA-D: diversidade das paisagens
     ipa_d = normalize(diversity, 1, 7)
-
-    # IPA-T: mobilidade/transição
     ipa_t = normalize(transitions, 0, max_transitions)
-
-    # IPA-S: estabilidade
     volatility = transitions / max_transitions if max_transitions > 0 else 0
     ipa_s = (1 - volatility) * 100
-
-    # IPA-V: direção vetorial da paisagem afetiva
     direction = scores[-1] - scores[0]
     ipa_v = normalize(direction, -9, 9)
 
-    # IPA-L: linguagem afetiva emergente
     all_text = " ".join(df["feeling_text"].dropna().astype(str)).lower()
     words = clean_words(all_text)
 
     if words:
         positive_count = sum(1 for w in words if w in POSITIVE_WORDS)
         negative_count = sum(1 for w in words if w in NEGATIVE_WORDS)
-        ipa_l = normalize(
-            positive_count - negative_count,
-            -len(words),
-            len(words)
-        )
+        ipa_l = normalize(positive_count - negative_count, -len(words), len(words))
     else:
         ipa_l = 50
 
-    # Pesos iguais nesta versão psicométrica inicial
-    ipa_global = (
-        0.20 * ipa_d +
-        0.20 * ipa_t +
-        0.20 * ipa_s +
-        0.20 * ipa_v +
-        0.20 * ipa_l
-    )
+    ipa_global = 0.20 * ipa_d + 0.20 * ipa_t + 0.20 * ipa_s + 0.20 * ipa_v + 0.20 * ipa_l
 
     return {
         "ipa_global": round(ipa_global, 2),
@@ -207,206 +214,210 @@ def calculate_ipa(df: pd.DataFrame) -> dict:
 
 
 def show_header_image():
-    desktop_img = "assets/deah_abertura_desktop.png"
-    mobile_img = "assets/deah_abertura_mobile.png"
-    fallback_img = "assets/deah_abertura.png"
-
-    for img in [desktop_img, fallback_img, mobile_img]:
+    for img in [
+        "assets/deah_abertura_desktop.png",
+        "assets/deah_abertura.png",
+        "assets/deah_abertura_mobile.png"
+    ]:
         if os.path.exists(img):
             st.image(img, use_container_width=True)
             return
 
 
-# ============================================================
-# INTERFACE
-# ============================================================
+def top_nav():
+    st.markdown("### 🌿 DEAH")
+    st.caption("Diário Ecológico de Ansiedade, Estresse e Humor")
 
-st.title("🌿 DEAH — Diário Ecológico de Ansiedade, Estresse e Humor")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🏠 Início"):
+            go_to("Início")
+    with c2:
+        if st.button("🌿 Participação"):
+            go_to("Participação")
 
-menu = st.sidebar.radio(
-    "Navegação",
-    ["Início", "Participação", "Diário", "Resultados"]
-)
+    c3, c4 = st.columns(2)
+    with c3:
+        if st.button("📝 Registro de Hoje"):
+            go_to("Registro de Hoje")
+    with c4:
+        if st.button("📊 Resultados"):
+            go_to("Resultados")
 
-# ============================================================
-# INÍCIO
-# ============================================================
+    st.divider()
 
-if menu == "Início":
-    show_header_image()
 
+def scale_help():
+    st.markdown(
+        '<div class="small-muted">Escala: 0 = nada · 1 = pouco · 2 = moderadamente · 3 = bastante · 4 = extremamente</div>',
+        unsafe_allow_html=True
+    )
+
+
+init_state()
+top_nav()
+page = st.session_state.page
+
+if page == "Início":
     st.markdown("""
-    Bem-vindo(a).
+    ## Bem-vindo(a)
 
-    O **DEAH** é um instrumento digital experimental destinado ao acompanhamento
-    longitudinal de experiências afetivas.
+    O **DEAH** é um instrumento digital experimental para acompanhar,
+    ao longo de alguns dias, experiências afetivas, paisagens emocionais
+    e narrativas livres.
 
-    Por meio de escalas breves, paisagens afetivas e narrativas livres, o sistema
-    busca compreender como as experiências emocionais se organizam ao longo do tempo
-    e em diferentes contextos da vida cotidiana.
-
-    O preenchimento leva aproximadamente de **2 a 5 minutos** por dia.
-
-    ---
-
-    ### Participação voluntária
-
-    Você está sendo convidado(a) a utilizar o DEAH — Diário Ecológico de Ansiedade,
-    Estresse e Humor.
-
-    O objetivo deste instrumento é acompanhar, ao longo do tempo, experiências afetivas,
-    narrativas e paisagens emocionais por meio de breves registros diários.
-
-    Sua participação é voluntária.
-
-    Você pode deixar de responder qualquer pergunta, interromper um registro em andamento
-    ou encerrar sua participação a qualquer momento, sem necessidade de justificativa.
-
-    Os dados fornecidos serão utilizados exclusivamente para fins de pesquisa e
-    desenvolvimento científico, sendo tratados de forma confidencial.
-
-    Evite informar nomes completos, endereços ou outras informações que permitam sua
-    identificação ou a identificação de terceiros.
-
-    Este instrumento não realiza diagnóstico psicológico, psiquiátrico ou médico e não
-    substitui acompanhamento profissional de saúde.
-
-    Em caso de sofrimento intenso, procure apoio profissional ou serviço de saúde.
-
-    ---
-
-    ### Como começar
-
-    1. Acesse **Participação**.
-    2. Informe sua **ID mascarada**.
-    3. Aceite voluntariamente participar.
-    4. Depois acesse **Diário** e registre sua resposta diária.
+    O preenchimento leva cerca de **2 a 5 minutos por dia**.
     """)
 
-# ============================================================
-# PARTICIPAÇÃO
-# ============================================================
+    st.markdown("""
+    <div class="deah-card">
+    <h3>Participação voluntária</h3>
+    <p>
+    Você pode deixar de responder qualquer pergunta, interromper um registro
+    em andamento ou encerrar sua participação a qualquer momento, sem necessidade
+    de justificativa.
+    </p>
+    <p>
+    Evite informar nomes completos, endereços ou dados que permitam identificar
+    você ou outras pessoas.
+    </p>
+    <p>
+    Este instrumento não realiza diagnóstico psicológico, psiquiátrico ou médico
+    e não substitui acompanhamento profissional de saúde.
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-if menu == "Participação":
-    st.header("Participação")
+    col_ini1, col_ini2 = st.columns(2)
+
+    with col_ini1:
+        if st.button("🌿 Iniciar participação"):
+            go_to("Participação")
+
+    with col_ini2:
+        if st.button("📝 Já participo"):
+            go_to("Registro de Hoje")
+
+
+elif page == "Participação":
+    st.header("🌿 Iniciar participação")
 
     st.markdown("""
-    Para participar, utilize uma **ID mascarada** fornecida pela pesquisa ou criada
-    de forma que não identifique diretamente você.
+    Use uma **ID mascarada**. Ela não deve conter seu nome completo.
 
-    Ao marcar a opção abaixo, você declara que leu as informações da tela inicial e
-    concorda livremente em participar.
+    Exemplos possíveis: `JPA001`, `MUSICO07`, `DEAH-TESTE`.
     """)
 
-    masked_id = st.text_input("ID mascarada")
+    masked_id = st.text_input("Digite sua ID mascarada")
     consent = st.checkbox("Li as informações e concordo voluntariamente em participar.")
 
-    if st.button("Iniciar participação"):
+    if st.button("Confirmar participação"):
         if not masked_id.strip():
             st.error("Informe uma ID mascarada.")
         elif not consent:
-            st.error("O consentimento é obrigatório para iniciar.")
+            st.error("Marque o consentimento para continuar.")
         elif get_participant(masked_id):
-            st.warning("Essa ID já está cadastrada. Você já pode acessar o Diário.")
+            st.warning("Essa ID já está cadastrada. Você já pode registrar o dia de hoje.")
         else:
             supabase.table("participants").insert({
                 "masked_id": masked_id.strip(),
                 "consent": consent
             }).execute()
-            st.success("Participação registrada com sucesso. Agora acesse o Diário.")
+            st.success("Participação registrada com sucesso.")
+            st.info("Agora toque em Registro de Hoje para preencher seu diário.")
 
-# ============================================================
-# DIÁRIO
-# ============================================================
+    if st.button("📝 Ir para Registro de Hoje"):
+        go_to("Registro de Hoje")
 
-if menu == "Diário":
-    st.header("Entrada diária")
 
-    if "diary_start_time" not in st.session_state:
-        st.session_state.diary_start_time = time.time()
+elif page == "Registro de Hoje":
+    st.header("📝 Registro de Hoje")
+    st.progress(0.15)
+
+    st.markdown("### 1. Identificação")
 
     masked_id = st.text_input("ID mascarada")
     participant = get_participant(masked_id) if masked_id.strip() else None
 
     if masked_id.strip() and not participant:
-        st.warning("ID ainda não cadastrada. Acesse Participação primeiro.")
+        st.warning("Esta ID ainda não foi cadastrada.")
+        if st.button("🌿 Cadastrar minha ID"):
+            go_to("Participação")
 
     day_number = st.number_input("Dia do diário", min_value=1, max_value=7, value=1)
 
-    st.markdown("### Contexto de preenchimento")
+    st.divider()
+    st.progress(0.30)
+    st.markdown("### 2. Contexto")
 
-    cdev1, cdev2 = st.columns(2)
+    device_type = st.selectbox(
+        "Qual dispositivo você está usando agora?",
+        ["Celular", "Tablet", "Notebook", "Computador de mesa", "Outro"]
+    )
 
-    with cdev1:
-        device_type = st.selectbox(
-            "Qual dispositivo você está usando agora?",
-            ["Celular", "Tablet", "Notebook", "Computador de mesa", "Outro"]
-        )
+    input_mode = st.selectbox(
+        "Como você está digitando?",
+        ["Teclado virtual", "Teclado físico", "Voz para texto", "Outro"]
+    )
 
-    with cdev2:
-        input_mode = st.selectbox(
-            "Como você está digitando?",
-            ["Teclado virtual", "Teclado físico", "Voz para texto", "Outro"]
-        )
-
-    st.markdown("---")
-    st.markdown("### Escalas afetivas")
-    st.caption("0 = nada | 1 = pouco | 2 = moderadamente | 3 = bastante | 4 = extremamente")
-
-    col1, col2 = st.columns(2)
-
-    negative_values = {}
-    positive_values = {}
-
-    with col1:
-        st.markdown("#### Dimensão negativa")
-        for key, label in NEGATIVE_ITEMS.items():
-            negative_values[key] = st.slider(label, 0, 4, 0, key=f"neg_{key}")
-
-    with col2:
-        st.markdown("#### Dimensão positiva")
-        for key, label in POSITIVE_ITEMS.items():
-            positive_values[key] = st.slider(label, 0, 4, 0, key=f"pos_{key}")
+    st.divider()
+    st.progress(0.45)
+    st.markdown("### 3. Como foi seu dia?")
 
     wellbeing = st.slider("Bem-estar geral", 0, 100, 50)
 
-    st.markdown("---")
-    st.markdown("### Paisagem afetiva")
+    st.divider()
+    st.progress(0.60)
+    st.markdown("### 4. Escalas afetivas")
+    scale_help()
+
+    with st.expander("Dimensão negativa", expanded=True):
+        negative_values = {}
+        for key, label in NEGATIVE_ITEMS.items():
+            negative_values[key] = st.slider(label, 0, 4, 0, key=f"neg_{key}")
+
+    with st.expander("Dimensão positiva", expanded=True):
+        positive_values = {}
+        for key, label in POSITIVE_ITEMS.items():
+            positive_values[key] = st.slider(label, 0, 4, 0, key=f"pos_{key}")
+
+    st.divider()
+    st.progress(0.78)
+    st.markdown("### 5. Paisagem afetiva")
 
     image_metaphor = st.selectbox(
-        "Entre as paisagens abaixo, qual se aproxima mais da forma como você percebe este momento?",
+        "Qual paisagem se aproxima mais da forma como você percebe este momento?",
         list(METAPHOR_SCORE.keys())
     )
 
-    st.markdown("---")
-    st.markdown("### Narrativa livre")
+    st.divider()
+    st.progress(0.90)
+    st.markdown("### 6. Narrativa livre")
 
     feeling_text = st.text_area(
         "Como você está se sentindo hoje?",
-        height=160,
-        placeholder="Escreva livremente. Evite nomes completos ou informações que identifiquem pessoas."
+        height=180,
+        placeholder="Escreva livremente. Pode ser curto. O importante é que seja verdadeiro para você."
     )
 
     typing_duration_seconds = round(time.time() - st.session_state.diary_start_time, 2)
     typing_char_count = len(feeling_text)
     typing_word_count = count_words(feeling_text)
-    typing_speed_cps = round(
-        typing_char_count / typing_duration_seconds,
-        3
-    ) if typing_duration_seconds > 0 else 0
+    typing_speed_cps = round(typing_char_count / typing_duration_seconds, 3) if typing_duration_seconds > 0 else 0
 
     if feeling_text.strip():
         st.caption(
-            f"Texto atual: {typing_char_count} caracteres | "
-            f"{typing_word_count} palavras | "
-            f"tempo aproximado na tela: {typing_duration_seconds:.1f}s"
+            f"{typing_char_count} caracteres · {typing_word_count} palavras · tempo aproximado na tela: {typing_duration_seconds:.1f}s"
         )
 
-    if st.button("Salvar resposta"):
+    st.divider()
+    st.progress(1.0)
+
+    if st.button("✅ Salvar meu registro de hoje"):
         if not participant:
             st.error("ID mascarada não cadastrada.")
         elif not feeling_text.strip():
-            st.error("A narrativa livre é obrigatória nesta versão do DEAH.")
+            st.error("Escreva uma narrativa livre antes de salvar.")
         else:
             row = {
                 "participant_id": participant["id"],
@@ -428,19 +439,18 @@ if menu == "Diário":
             supabase.table("daily_entries").insert(row).execute()
 
             st.session_state.diary_start_time = time.time()
-            st.success("Resposta salva com sucesso.")
+            st.success("Registro salvo com sucesso.")
+            st.balloons()
 
-# ============================================================
-# RESULTADOS
-# ============================================================
 
-if menu == "Resultados":
-    st.header("Resultados semanais")
+elif page == "Resultados":
+    st.header("📊 Resultados")
+    st.markdown("Visualize seus registros já salvos.")
 
-    masked_id = st.text_input("Filtrar por ID mascarada")
+    masked_id = st.text_input("ID mascarada para consultar resultados")
 
     if not masked_id.strip():
-        st.info("Informe uma ID mascarada para visualizar os resultados.")
+        st.info("Digite sua ID mascarada para visualizar os resultados.")
     else:
         participant = get_participant(masked_id)
 
@@ -456,35 +466,33 @@ if menu == "Resultados":
             )
 
             if not result.data:
-                st.warning("Ainda não há respostas para este participante.")
+                st.warning("Ainda não há respostas para esta ID.")
             else:
                 df = pd.DataFrame(result.data)
                 df = calculate_scores(df)
                 ipa = calculate_ipa(df)
 
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Respostas", len(df))
-                col2.metric("Afeto negativo médio", round(df["afeto_negativo"].mean(), 2))
-                col3.metric("Afeto positivo médio", round(df["afeto_positivo"].mean(), 2))
-                col4.metric("IPA Global", ipa["ipa_global"])
+                st.markdown("### Resumo")
+                col1, col2 = st.columns(2)
+                col1.metric("Registros", len(df))
+                col2.metric("IPA Global", ipa["ipa_global"])
 
-                st.subheader("Subíndices do IPA")
+                col3, col4 = st.columns(2)
+                col3.metric("Afeto negativo médio", round(df["afeto_negativo"].mean(), 2))
+                col4.metric("Afeto positivo médio", round(df["afeto_positivo"].mean(), 2))
 
+                st.markdown("### Subíndices do IPA")
                 ipa_df = pd.DataFrame({
                     "Subíndice": ["IPA-D", "IPA-T", "IPA-S", "IPA-V", "IPA-L"],
                     "Valor": [
-                        ipa["ipa_d"],
-                        ipa["ipa_t"],
-                        ipa["ipa_s"],
-                        ipa["ipa_v"],
-                        ipa["ipa_l"]
+                        ipa["ipa_d"], ipa["ipa_t"], ipa["ipa_s"], ipa["ipa_v"], ipa["ipa_l"]
                     ]
                 })
 
                 st.dataframe(ipa_df, use_container_width=True)
                 st.bar_chart(ipa_df.set_index("Subíndice"))
 
-                st.subheader("Evolução afetiva")
+                st.markdown("### Evolução afetiva")
                 fig = px.line(
                     df,
                     x="day_number",
@@ -493,62 +501,40 @@ if menu == "Resultados":
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-                st.subheader("Balanço afetivo")
-                fig_balance = px.line(
-                    df,
-                    x="day_number",
-                    y="balanco_afetivo",
-                    markers=True
-                )
-                st.plotly_chart(fig_balance, use_container_width=True)
-
-                st.subheader("Bem-estar geral")
-                fig2 = px.line(
-                    df,
-                    x="day_number",
-                    y="wellbeing",
-                    markers=True
-                )
+                st.markdown("### Bem-estar geral")
+                fig2 = px.line(df, x="day_number", y="wellbeing", markers=True)
                 st.plotly_chart(fig2, use_container_width=True)
 
-                st.subheader("Frequência das paisagens afetivas")
+                st.markdown("### Paisagens afetivas")
                 st.bar_chart(df["image_metaphor"].value_counts())
 
-                st.subheader("Ecologia digital da resposta")
+                st.markdown("### Ecologia digital da resposta")
 
                 if "device_type" in df.columns:
-                    st.write("**Dispositivos utilizados**")
+                    st.write("Dispositivos utilizados")
                     st.bar_chart(df["device_type"].fillna("Não informado").value_counts())
 
                 if "input_mode" in df.columns:
-                    st.write("**Modos de entrada**")
+                    st.write("Modos de entrada")
                     st.bar_chart(df["input_mode"].fillna("Não informado").value_counts())
 
-                if "typing_word_count" in df.columns:
-                    typing_cols = [
-                        c for c in [
-                            "day_number",
-                            "typing_char_count",
-                            "typing_word_count",
-                            "typing_duration_seconds",
-                            "typing_speed_cps"
-                        ]
-                        if c in df.columns
+                typing_cols = [
+                    c for c in [
+                        "day_number", "typing_char_count", "typing_word_count",
+                        "typing_duration_seconds", "typing_speed_cps"
                     ]
+                    if c in df.columns
+                ]
+                if typing_cols:
                     st.dataframe(df[typing_cols], use_container_width=True)
 
-                st.subheader("Nuvem de palavras")
+                st.markdown("### Nuvem de palavras")
                 all_text = " ".join(df["feeling_text"].dropna().astype(str))
                 words = clean_words(all_text)
 
                 if words:
                     word_text = " ".join(words)
-
-                    wc = WordCloud(
-                        width=1000,
-                        height=500,
-                        background_color="white"
-                    ).generate(word_text)
+                    wc = WordCloud(width=1000, height=500, background_color="white").generate(word_text)
 
                     fig_wc, ax = plt.subplots(figsize=(10, 5))
                     ax.imshow(wc, interpolation="bilinear")
@@ -561,14 +547,11 @@ if menu == "Resultados":
                 else:
                     st.info("Ainda não há texto suficiente para gerar a nuvem.")
 
-                st.subheader("Respostas abertas")
-                st.dataframe(
-                    df[["day_number", "image_metaphor", "feeling_text"]],
-                    use_container_width=True
-                )
+                st.markdown("### Narrativas")
+                st.dataframe(df[["day_number", "image_metaphor", "feeling_text"]], use_container_width=True)
 
-                st.subheader("Dados completos")
-                st.dataframe(df, use_container_width=True)
+                with st.expander("Dados completos"):
+                    st.dataframe(df, use_container_width=True)
 
                 csv = df.to_csv(index=False).encode("utf-8")
                 st.download_button(
