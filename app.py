@@ -84,6 +84,26 @@ h1, h2, h3 {
     }
 }
 
+/* Escalas em radio: mais seguras em celular do que sliders */
+div[role="radiogroup"] {
+    gap: 0.25rem;
+}
+div[role="radiogroup"] label {
+    padding: 0.25rem 0.15rem;
+}
+
+@media (max-width: 640px) {
+    div[role="radiogroup"] {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem 0.35rem;
+    }
+    div[role="radiogroup"] label {
+        min-height: 2.4rem;
+        align-items: center;
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -432,22 +452,41 @@ elif page == "Registro de Hoje":
     st.progress(0.45)
     st.markdown("### 3. Como foi seu dia?")
 
-    wellbeing = st.slider("Bem-estar geral", 0, 100, 50)
+    wellbeing = st.radio(
+        "Bem-estar geral",
+        options=[0, 25, 50, 75, 100],
+        index=2,
+        horizontal=True,
+        key="wellbeing_radio"
+    )
 
     st.divider()
     st.progress(0.60)
     st.markdown("### 4. Escalas afetivas")
     scale_help()
+    st.info("No celular, toque uma vez na opção desejada. As escalas agora não usam arraste, para evitar marcações acidentais ao rolar a tela.")
 
     with st.expander("Dimensão negativa", expanded=True):
         negative_values = {}
         for key, label in NEGATIVE_ITEMS.items():
-            negative_values[key] = st.slider(label, 0, 4, 0, key=f"neg_{key}")
+            negative_values[key] = st.radio(
+                label,
+                options=[0, 1, 2, 3, 4],
+                index=0,
+                horizontal=True,
+                key=f"neg_{key}"
+            )
 
     with st.expander("Dimensão positiva", expanded=True):
         positive_values = {}
         for key, label in POSITIVE_ITEMS.items():
-            positive_values[key] = st.slider(label, 0, 4, 0, key=f"pos_{key}")
+            positive_values[key] = st.radio(
+                label,
+                options=[0, 1, 2, 3, 4],
+                index=0,
+                horizontal=True,
+                key=f"pos_{key}"
+            )
 
     st.divider()
     st.progress(0.78)
