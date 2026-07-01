@@ -3,7 +3,6 @@ import re
 import time
 from datetime import date, datetime
 import streamlit as st
-import resend
 import pandas as pd
 import plotly.express as px
 from supabase import create_client
@@ -22,7 +21,6 @@ supabase = create_client(
     st.secrets["SUPABASE_KEY"]
 )
 
-st.write("Resend configurado:", "RESEND_API_KEY" in st.secrets)
 
 st.markdown("""
 <style>
@@ -299,6 +297,9 @@ def top_nav():
         if st.button("📊 Resultados"):
             go_to("Resultados")
 
+    if st.button("🔬 Pesquisador"):
+        go_to("Pesquisador")
+
     st.divider()
 
 
@@ -323,29 +324,6 @@ if page == "Início":
 
     O preenchimento leva cerca de **2 a 5 minutos por dia**.
     """)
-
-import resend
-
-email_teste = st.text_input("E-mail para teste")
-
-if st.button("📧 Enviar teste Resend"):
-    try:
-        resend.api_key = st.secrets["RESEND_API_KEY"]
-
-        resend.Emails.send({
-            "from": "onboarding@resend.dev",
-            "to": email_teste,
-            "subject": "Teste DEAH",
-            "html": """
-            <h2>🌿 DEAH</h2>
-            <p>Se você recebeu esta mensagem, o Resend está funcionando.</p>
-            """
-        })
-
-        st.success("E-mail enviado com sucesso!")
-
-    except Exception as e:
-        st.error(f"Erro: {e}")
 
     st.markdown("""
     <div class="deah-card">
@@ -375,7 +353,6 @@ if st.button("📧 Enviar teste Resend"):
     with col_ini2:
         if st.button("📝 Já participo"):
             go_to("Registro de Hoje")
-
 
 elif page == "Participação":
     st.header("🌿 Iniciar participação")
@@ -533,6 +510,151 @@ elif page == "Registro de Hoje":
             st.success("Registro salvo com sucesso.")
             st.balloons()
 
+
+
+elif page == "Pesquisador":
+    st.header("🔬 Painel do Pesquisador")
+
+    admin_password = st.secrets.get("DEAH_ADMIN_PASSWORD", "")
+    if admin_password:
+        typed_password = st.text_input("Senha do pesquisador", type="password")
+        if typed_password != admin_password:
+            st.info("Digite a senha para acessar o painel.")
+            st.stop()
+    else:
+        st.warning("Painel sem senha. Para proteger, adicione DEAH_ADMIN_PASSWORD nos Secrets do Streamlit.")
+
+    st.markdown("""
+    Este painel ajuda a acompanhar a adesão ao diário de 7 dias e gerar
+    uma lista simples de lembretes para envio manual por e-mail.
+    """)
+
+    participants_result = (
+        supabase.table("participants")
+        .select("*")
+        .order("masked_id")
+        .execute()
+    )
+    participants = participants_result.data or []
+
+    entries_result = (
+        supabase.table("daily_entries")
+        .select("*")
+        .execute()
+    )
+    entries = entries_result.data or []
+
+    if not participants:
+        st.info("Ainda não há participantes cadastrados.")
+    else:
+        entries_df = pd.DataFrame(entries) if entries else pd.DataFrame()
+        rows = []
+
+        for participant in participants:
+            pid = participant.get("id")
+            masked_id = participant.get("masked_id", "")
+            current_day = calculate_current_day(participant)
+
+            if not entries_df.empty and "participant_id" in entries_df.columns:
+                p_entries = entries_df[entries_df["participant_id"] == pid].copy()
+            else:
+                p_entries = pd.DataFrame()
+
+            answered_days = []
+            last_answer = None
+
+            if not p_entries.empty:
+                if "day_number" in p_entries.columns:
+                    answered_days = sorted(
+                        pd.to_numeric(p_entries["day_number"], errors="coerce")
+                        .dropna()
+                        .astype(int)
+                        .unique()
+                        .tolist()
+                    )
+
+                date_cols = [c for c in ["created_at", "inserted_at", "updated_at"] if c in p_entries.columns]
+                if date_cols:
+                    last_answer = str(p_entries[date_cols[0]].dropna().max())
+                elif "day_number" in p_entries.columns and answered_days:
+                    last_answer = f"Dia {max(answered_days)}"
+
+            answered_today = current_day in answered_days
+            reminder_consent = bool(participant.get("reminder_consent", False))
+            reminder_email = participant.get("reminder_email") or ""
+
+            pending = reminder_consent and (1 <= current_day <= 7) and not answered_today
+
+            rows.append({
+                "ID mascarada": masked_id,
+                "E-mail": reminder_email,
+                "Aceitou lembrete": "sim" if reminder_consent else "não",
+                "Dia atual": current_day,
+                "Dias respondidos": ", ".join(map(str, answered_days)) if answered_days else "-",
+                "Respondeu hoje": "sim" if answered_today else "não",
+                "Última resposta": last_answer or "-",
+                "Pendente hoje": "sim" if pending else "não"
+            })
+
+        monitor_df = pd.DataFrame(rows)
+
+        total = len(monitor_df)
+        pending_df = monitor_df[monitor_df["Pendente hoje"] == "sim"].copy()
+        completed_today = (monitor_df["Respondeu hoje"] == "sim").sum()
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Participantes", total)
+        col2.metric("Responderam hoje", int(completed_today))
+        col3.metric("Lembretes pendentes", len(pending_df))
+
+        st.markdown("### Pendentes para lembrar hoje")
+
+        if pending_df.empty:
+            st.success("Nenhum lembrete pendente hoje.")
+        else:
+            st.dataframe(pending_df, use_container_width=True)
+
+            emails = [e for e in pending_df["E-mail"].dropna().astype(str).tolist() if e.strip()]
+            st.text_area(
+                "Copiar e-mails pendentes",
+                value=", ".join(emails),
+                height=90
+            )
+
+            link_deah = st.secrets.get("DEAH_APP_URL", "COLE_AQUI_O_LINK_DO_DEAH")
+            message = f"""🌿 Olá!
+
+Este é um lembrete do estudo DEAH.
+
+Reserve 2 a 5 minutos para preencher o diário de hoje.
+
+Acesse:
+{link_deah}
+
+Utilize sua ID mascarada cadastrada.
+
+Obrigado pela sua participação!"""
+
+            st.text_area("Mensagem padrão para copiar", value=message, height=190)
+
+            csv_pending = pending_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Baixar lista de lembretes de hoje",
+                csv_pending,
+                "deah_lembretes_hoje.csv",
+                "text/csv"
+            )
+
+        st.markdown("### Todos os participantes")
+        st.dataframe(monitor_df, use_container_width=True)
+
+        csv_all = monitor_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Baixar monitoramento completo",
+            csv_all,
+            "deah_monitoramento.csv",
+            "text/csv"
+        )
 
 elif page == "Resultados":
     st.header("📊 Resultados")
