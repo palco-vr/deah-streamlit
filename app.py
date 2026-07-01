@@ -1,7 +1,9 @@
 import os
 import re
 import time
+from datetime import date, datetime
 import streamlit as st
+import resend
 import pandas as pd
 import plotly.express as px
 from supabase import create_client
@@ -19,6 +21,8 @@ supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
 )
+
+st.write("Resend configurado:", "RESEND_API_KEY" in st.secrets)
 
 st.markdown("""
 <style>
@@ -158,6 +162,22 @@ def get_participant(masked_id):
     )
     return result.data[0] if result.data else None
 
+
+
+
+def calculate_current_day(participant):
+    """Calcula automaticamente o dia do diário a partir da data de início."""
+    started_at = participant.get("started_at") if participant else None
+    if not started_at:
+        return 1
+    try:
+        start_date = datetime.fromisoformat(str(started_at).replace("Z", "+00:00")).date()
+    except Exception:
+        try:
+            start_date = date.fromisoformat(str(started_at)[:10])
+        except Exception:
+            return 1
+    return max(1, min(7, (date.today() - start_date).days + 1))
 
 def clean_words(text):
     words = re.findall(r"\b[a-záàâãéèêíïóôõöúçñ]+\b", text.lower())
@@ -304,6 +324,29 @@ if page == "Início":
     O preenchimento leva cerca de **2 a 5 minutos por dia**.
     """)
 
+import resend
+
+email_teste = st.text_input("E-mail para teste")
+
+if st.button("📧 Enviar teste Resend"):
+    try:
+        resend.api_key = st.secrets["RESEND_API_KEY"]
+
+        resend.Emails.send({
+            "from": "onboarding@resend.dev",
+            "to": email_teste,
+            "subject": "Teste DEAH",
+            "html": """
+            <h2>🌿 DEAH</h2>
+            <p>Se você recebeu esta mensagem, o Resend está funcionando.</p>
+            """
+        })
+
+        st.success("E-mail enviado com sucesso!")
+
+    except Exception as e:
+        st.error(f"Erro: {e}")
+
     st.markdown("""
     <div class="deah-card">
     <h3>Participação voluntária</h3>
@@ -346,17 +389,27 @@ elif page == "Participação":
     masked_id = st.text_input("Digite sua ID mascarada")
     consent = st.checkbox("Li as informações e concordo voluntariamente em participar.")
 
+    st.markdown("### Lembretes por 7 dias")
+    reminder_consent = st.checkbox("Desejo receber um lembrete diário para preencher o DEAH durante 7 dias.")
+    reminder_email = st.text_input("E-mail para lembrete, se desejar", placeholder="participante@email.com")
+
     if st.button("Confirmar participação"):
         if not masked_id.strip():
             st.error("Informe uma ID mascarada.")
         elif not consent:
             st.error("Marque o consentimento para continuar.")
+        elif reminder_consent and not reminder_email.strip():
+            st.error("Informe um e-mail para receber os lembretes ou desmarque a opção de lembrete.")
         elif get_participant(masked_id):
             st.warning("Essa ID já está cadastrada. Você já pode registrar o dia de hoje.")
         else:
             supabase.table("participants").insert({
                 "masked_id": masked_id.strip(),
-                "consent": consent
+                "consent": consent,
+                "started_at": date.today().isoformat(),
+                "reminder_consent": reminder_consent,
+                "reminder_email": reminder_email.strip() if reminder_consent else None,
+                "reminder_channel": "email" if reminder_consent else None
             }).execute()
             st.success("Participação registrada com sucesso.")
             st.info("Agora toque em Registro de Hoje para preencher seu diário.")
@@ -379,7 +432,10 @@ elif page == "Registro de Hoje":
         if st.button("🌿 Cadastrar minha ID"):
             go_to("Participação")
 
-    day_number = st.number_input("Dia do diário", min_value=1, max_value=7, value=1)
+    suggested_day = calculate_current_day(participant) if participant else 1
+    day_number = st.number_input("Dia do diário", min_value=1, max_value=7, value=suggested_day)
+    if participant:
+        st.caption(f"Dia sugerido automaticamente pelo cadastro: {suggested_day}/7")
 
     st.divider()
     st.progress(0.30)
