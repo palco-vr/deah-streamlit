@@ -84,23 +84,60 @@ h1, h2, h3 {
     }
 }
 
-/* Escalas em radio: mais seguras em celular do que sliders */
-div[role="radiogroup"] {
-    gap: 0.25rem;
+/* Barrinhas DEAH: cartões amplos e operáveis no celular */
+.deah-scale-card {
+    background: #f8faf7;
+    color: #1f2a24;
+    border: 1px solid #dfe8dd;
+    border-radius: 18px;
+    padding: 0.95rem 0.95rem 0.7rem 0.95rem;
+    margin: 0.75rem 0 0.35rem 0;
 }
-div[role="radiogroup"] label {
-    padding: 0.25rem 0.15rem;
+.deah-scale-card .scale-title {
+    font-weight: 700;
+    font-size: 1.02rem;
+    line-height: 1.25;
+    margin-bottom: 0.25rem;
+}
+.deah-scale-card .scale-value {
+    color: #4b5f54;
+    font-size: 0.95rem;
+    margin-top: -0.15rem;
+    margin-bottom: 0.25rem;
+}
+.scale-anchors {
+    display: flex;
+    justify-content: space-between;
+    color: #66756d;
+    font-size: 0.82rem;
+    margin-top: -0.35rem;
+    margin-bottom: 1.15rem;
+}
+
+/* Aumenta a área útil do slider para o polegar */
+div[data-testid="stSlider"] {
+    padding-left: 0.45rem;
+    padding-right: 0.45rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.45rem;
+}
+div[data-testid="stSlider"] label {
+    display: none;
 }
 
 @media (max-width: 640px) {
-    div[role="radiogroup"] {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.25rem 0.35rem;
+    .deah-scale-card {
+        padding: 1.05rem 0.85rem 0.8rem 0.85rem;
+        margin: 0.95rem 0 0.4rem 0;
     }
-    div[role="radiogroup"] label {
-        min-height: 2.4rem;
-        align-items: center;
+    .deah-scale-card .scale-title {
+        font-size: 1rem;
+    }
+    div[data-testid="stSlider"] {
+        padding-left: 0.2rem;
+        padding-right: 0.2rem;
+        padding-top: 0.55rem;
+        padding-bottom: 0.75rem;
     }
 }
 
@@ -325,9 +362,65 @@ def top_nav():
 
 def scale_help():
     st.markdown(
-        '<div class="small-muted">Escala: 0 = nada · 1 = pouco · 2 = moderadamente · 3 = bastante · 4 = extremamente</div>',
+        '<div class="small-muted">Escala contínua: 0 = nada · 1 = pouco · 2 = moderadamente · 3 = bastante · 4 = extremamente</div>',
         unsafe_allow_html=True
     )
+
+
+def deah_slider(label, key, value=0.0):
+    """Slider afetivo em cartão, com valor visível e melhor usabilidade no celular."""
+    st.markdown(
+        f"""
+        <div class="deah-scale-card">
+            <div class="scale-title">{label}</div>
+            <div class="scale-value">Ajuste a barrinha abaixo.</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    valor = st.slider(
+        label,
+        min_value=0.0,
+        max_value=4.0,
+        value=float(value),
+        step=0.1,
+        key=key,
+        label_visibility="collapsed"
+    )
+    st.caption(f"Valor atual: {valor:.1f} · 0 nada · 4 extremamente")
+    st.markdown(
+        '<div class="scale-anchors"><span>0 · nada</span><span>4 · extremamente</span></div>',
+        unsafe_allow_html=True
+    )
+    return valor
+
+
+def deah_wellbeing_slider():
+    """Slider de bem-estar em cartão, mantendo escala 0–100."""
+    st.markdown(
+        """
+        <div class="deah-scale-card">
+            <div class="scale-title">Bem-estar geral</div>
+            <div class="scale-value">0 = muito baixo · 100 = muito alto</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    valor = st.slider(
+        "Bem-estar geral",
+        min_value=0.0,
+        max_value=100.0,
+        value=50.0,
+        step=1.0,
+        key="wellbeing_slider",
+        label_visibility="collapsed"
+    )
+    st.caption(f"Valor atual: {valor:.0f}")
+    st.markdown(
+        '<div class="scale-anchors"><span>0 · muito baixo</span><span>100 · muito alto</span></div>',
+        unsafe_allow_html=True
+    )
+    return valor
 
 
 init_state()
@@ -452,41 +545,23 @@ elif page == "Registro de Hoje":
     st.progress(0.45)
     st.markdown("### 3. Como foi seu dia?")
 
-    wellbeing = st.radio(
-        "Bem-estar geral",
-        options=[0, 25, 50, 75, 100],
-        index=2,
-        horizontal=True,
-        key="wellbeing_radio"
-    )
+    wellbeing = deah_wellbeing_slider()
 
     st.divider()
     st.progress(0.60)
     st.markdown("### 4. Escalas afetivas")
     scale_help()
-    st.info("No celular, toque uma vez na opção desejada. As escalas agora não usam arraste, para evitar marcações acidentais ao rolar a tela.")
+    st.info("No celular, toque e arraste somente quando quiser ajustar uma barrinha. Cada item aparece em um cartão separado para reduzir marcações acidentais durante a rolagem.")
 
     with st.expander("Dimensão negativa", expanded=True):
         negative_values = {}
         for key, label in NEGATIVE_ITEMS.items():
-            negative_values[key] = st.radio(
-                label,
-                options=[0, 1, 2, 3, 4],
-                index=0,
-                horizontal=True,
-                key=f"neg_{key}"
-            )
+            negative_values[key] = deah_slider(label, f"neg_{key}")
 
     with st.expander("Dimensão positiva", expanded=True):
         positive_values = {}
         for key, label in POSITIVE_ITEMS.items():
-            positive_values[key] = st.radio(
-                label,
-                options=[0, 1, 2, 3, 4],
-                index=0,
-                horizontal=True,
-                key=f"pos_{key}"
-            )
+            positive_values[key] = deah_slider(label, f"pos_{key}")
 
     st.divider()
     st.progress(0.78)
@@ -529,7 +604,7 @@ elif page == "Registro de Hoje":
             row = {
                 "participant_id": participant["id"],
                 "day_number": int(day_number),
-                "wellbeing": int(wellbeing),
+                "wellbeing": float(wellbeing),
                 "feeling_text": feeling_text.strip(),
                 "image_metaphor": image_metaphor,
                 "device_type": device_type,
@@ -540,8 +615,8 @@ elif page == "Registro de Hoje":
                 "typing_speed_cps": typing_speed_cps
             }
 
-            row.update({k: int(v) for k, v in negative_values.items()})
-            row.update({k: int(v) for k, v in positive_values.items()})
+            row.update({k: float(v) for k, v in negative_values.items()})
+            row.update({k: float(v) for k, v in positive_values.items()})
 
             supabase.table("daily_entries").insert(row).execute()
 
